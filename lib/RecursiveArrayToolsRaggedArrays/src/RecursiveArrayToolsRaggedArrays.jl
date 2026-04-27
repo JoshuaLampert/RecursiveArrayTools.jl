@@ -1520,12 +1520,28 @@ end
 
 Base.map(f, A::AbstractRaggedVectorOfArray) = map(f, A.u)
 
-function Base.mapreduce(f, op, A::AbstractRaggedVectorOfArray; kwargs...)
-    # For full reduction (no kwargs): safely recurse over u to handle ragged inner shapes.
-    # The view-based approach uses size(A.u[1]) for all columns, which fails when inner
-    # arrays are themselves ragged with different column counts.
+# Named functor used by the nested-ragged mapreduce to ensure type-stable dispatch.
+struct _RaggedMapReduce{F, Op}
+    f::F
+    op::Op
+end
+@inline (w::_RaggedMapReduce)(u) = mapreduce(w.f, w.op, u)
+
+# When inner elements are themselves ragged, the view-based approach fails: view uses
+# size(A.u[1]) for every column, causing BoundsErrors when inner shapes differ.
+# We recurse element-by-element instead. Dispatching on the type of A.u (rather than
+# using an if-check at runtime) keeps inference type-stable down to Julia 1.10.
+function Base.mapreduce(
+        f, op,
+        A::AbstractRaggedVectorOfArray{T, N, <:AbstractVector{<:AbstractRaggedVectorOfArray}};
+        kwargs...
+    ) where {T, N}
     isempty(kwargs) || return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
-    return mapreduce(u -> mapreduce(f, op, u), op, A.u)
+    return mapreduce(_RaggedMapReduce(f, op), op, A.u)
+end
+
+function Base.mapreduce(f, op, A::AbstractRaggedVectorOfArray; kwargs...)
+    return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
 end
 function Base.mapreduce(
         f, op, A::AbstractRaggedVectorOfArray{T, 1, <:AbstractVector{T}}; kwargs...
