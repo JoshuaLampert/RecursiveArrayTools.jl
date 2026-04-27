@@ -1016,4 +1016,15 @@ using Test
         src[:, 1] .= 99.0
         @test dst[:, 1] == [1.0, 1.0]
     end
+
+    @testset "mapreduce over nested ragged arrays" begin
+        # Outer array whose inner RaggedVoA elements have different column counts.
+        # mapreduce must recurse over A.u rather than building a fixed-shape view.
+        inner1 = RaggedVectorOfArray([ones(3), ones(3)])           # 2 columns
+        inner2 = RaggedVectorOfArray([ones(3), ones(3), ones(3)])  # 3 columns — ragged!
+        u = RaggedVectorOfArray([inner1, inner2])
+
+        @test mapreduce(identity, +, u) == 15.0  # (2+3)*3
+    end
+
 end

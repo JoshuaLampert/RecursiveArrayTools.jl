@@ -1521,7 +1521,11 @@ end
 Base.map(f, A::AbstractRaggedVectorOfArray) = map(f, A.u)
 
 function Base.mapreduce(f, op, A::AbstractRaggedVectorOfArray; kwargs...)
-    return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
+    # For full reduction (no kwargs): safely recurse over u to handle ragged inner shapes.
+    # The view-based approach uses size(A.u[1]) for all columns, which fails when inner
+    # arrays are themselves ragged with different column counts.
+    isempty(kwargs) || return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
+    return mapreduce(u -> mapreduce(f, op, u), op, A.u)
 end
 function Base.mapreduce(
         f, op, A::AbstractRaggedVectorOfArray{T, 1, <:AbstractVector{T}}; kwargs...
