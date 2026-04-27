@@ -2,7 +2,8 @@ module RecursiveArrayToolsRaggedArrays
 
 import RecursiveArrayTools: RecursiveArrayTools, AbstractRaggedVectorOfArray,
     AbstractRaggedDiffEqArray, VectorOfArray, DiffEqArray,
-    AbstractVectorOfArray, AbstractDiffEqArray, AllObserved
+    AbstractVectorOfArray, AbstractDiffEqArray, AllObserved,
+    recursivefill!, recursivecopy!
 using SymbolicIndexingInterface
 using SymbolicIndexingInterface: ParameterTimeseriesCollection, ParameterIndexingProxy,
     ScalarSymbolic, ArraySymbolic, NotSymbolic, Timeseries, SymbolCache
@@ -1724,5 +1725,40 @@ end
 
 # Re-export has_discretes and get_discretes for the non-ragged types
 has_discretes(::TT) where {TT <: AbstractDiffEqArray} = hasfield(TT, :discretes)
+
+function recursivecopy!(b::AbstractRaggedVectorOfArray, a::AbstractRaggedVectorOfArray)
+    @inbounds for i in eachindex(b.u, a.u)
+        if ArrayInterface.ismutable(b.u[i]) || b.u[i] isa AbstractRaggedVectorOfArray
+            recursivecopy!(b.u[i], a.u[i])
+        else
+            b.u[i] = copy(a.u[i])
+        end
+    end
+    return b
+end
+
+function recursivefill!(
+        b::AbstractRaggedVectorOfArray{T, N},
+        a::T2
+    ) where {T <: Union{Number, Bool}, T2 <: Union{Number, Bool}, N}
+    return fill!(b, a)
+end
+
+function recursivefill!(
+        b::AbstractRaggedVectorOfArray{T, N},
+        a::T2
+    ) where {T <: StaticArraysCore.SArray, T2 <: Union{Number, Bool}, N}
+    @inbounds for arr in b.u, i in eachindex(arr)
+        arr[i] = map(_ -> a, arr[i])
+    end
+    return b
+end
+
+function recursivefill!(b::AbstractRaggedVectorOfArray{T, N}, a) where {T <: AbstractArray, N}
+    @inbounds for arr in b.u
+        recursivefill!(arr, a)
+    end
+    return b
+end
 
 end # module RecursiveArrayToolsRaggedArrays
