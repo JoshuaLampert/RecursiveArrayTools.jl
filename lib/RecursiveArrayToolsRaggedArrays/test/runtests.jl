@@ -2,6 +2,7 @@ using RecursiveArrayTools, RecursiveArrayToolsRaggedArrays
 using RecursiveArrayToolsRaggedArrays: RaggedEnd, RaggedRange
 using SymbolicIndexingInterface
 using SymbolicIndexingInterface: SymbolCache
+import DiffEqBase: ODE_DEFAULT_NORM, UNITLESS_ABS2, recursive_length
 using Test
 
 @testset "RecursiveArrayToolsRaggedArrays" begin
@@ -1025,6 +1026,19 @@ using Test
         u = RaggedVectorOfArray([inner1, inner2])
 
         @test mapreduce(identity, +, u) == 15.0  # (2+3)*3
+    end
+
+    @testset "ODE_DEFAULT_NORM: RMS-normalised for RaggedVectorOfArray" begin
+        # Loading OrdinaryDiffEqTsit5 (which depends on DiffEqBase) triggers the weakdep
+        # extension, giving the correct RMS-normalised norm instead of the unnormalised
+        # Euclidean norm used by the generic fallback.
+        r = RaggedVectorOfArray([ones(3), ones(3)])  # 6 ones
+        @test UNITLESS_ABS2(r) ≈ 6.0
+        @test recursive_length(r) == 6
+        # RMS norm of 6 ones = sqrt(6/6) = 1
+        @test ODE_DEFAULT_NORM(r, 0.0) ≈ 1.0
+        # Unnormalised Euclidean norm would be sqrt(6) ≈ 2.449 — make sure we don't get that
+        @test ODE_DEFAULT_NORM(r, 0.0) < 2.0
     end
 
 end
