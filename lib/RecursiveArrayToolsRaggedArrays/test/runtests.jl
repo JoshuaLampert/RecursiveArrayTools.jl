@@ -986,4 +986,45 @@ using Test
         @test rd isa RecursiveArrayTools.AbstractRaggedVectorOfArray
         @test !(rd isa AbstractArray)
     end
+
+    @testset "recursivefill! for RaggedVectorOfArray" begin
+        # Bool argument — the pattern used by ODE solver cache initialisation
+        r = RaggedVectorOfArray([ones(2), ones(3)])
+        recursivefill!(r, false)
+        @test r[:, 1] == [0.0, 0.0]
+        @test r[:, 2] == [0.0, 0.0, 0.0]
+
+        # Numeric argument
+        r2 = RaggedVectorOfArray([zeros(2), zeros(3)])
+        recursivefill!(r2, 1.0)
+        @test r2[:, 1] == [1.0, 1.0]
+        @test r2[:, 2] == [1.0, 1.0, 1.0]
+
+        # Ragged sizes are preserved
+        @test length(r[:, 1]) == 2
+        @test length(r[:, 2]) == 3
+    end
+
+    @testset "recursivecopy! for RaggedVectorOfArray" begin
+        src = RaggedVectorOfArray([ones(2), 2 * ones(3)])
+        dst = RaggedVectorOfArray([zeros(2), zeros(3)])
+        recursivecopy!(dst, src)
+        @test dst[:, 1] == [1.0, 1.0]
+        @test dst[:, 2] == [2.0, 2.0, 2.0]
+
+        # Verify deep copy — modifying src must not affect dst
+        src[:, 1] .= 99.0
+        @test dst[:, 1] == [1.0, 1.0]
+    end
+
+    @testset "mapreduce over nested ragged arrays" begin
+        # Outer array whose inner RaggedVoA elements have different column counts.
+        # mapreduce must recurse over A.u rather than building a fixed-shape view.
+        inner1 = RaggedVectorOfArray([ones(3), ones(3)])           # 2 columns
+        inner2 = RaggedVectorOfArray([ones(3), ones(3), ones(3)])  # 3 columns — ragged!
+        u = RaggedVectorOfArray([inner1, inner2])
+
+        @test mapreduce(identity, +, u) == 15.0  # (2+3)*3
+    end
+
 end

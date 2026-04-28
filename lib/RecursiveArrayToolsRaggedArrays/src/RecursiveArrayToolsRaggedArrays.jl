@@ -2,7 +2,8 @@ module RecursiveArrayToolsRaggedArrays
 
 import RecursiveArrayTools: RecursiveArrayTools, AbstractRaggedVectorOfArray,
     AbstractRaggedDiffEqArray, VectorOfArray, DiffEqArray,
-    AbstractVectorOfArray, AbstractDiffEqArray, AllObserved
+    AbstractVectorOfArray, AbstractDiffEqArray, AllObserved,
+    recursivefill!, recursivecopy!
 using SymbolicIndexingInterface
 using SymbolicIndexingInterface: ParameterTimeseriesCollection, ParameterIndexingProxy,
     ScalarSymbolic, ArraySymbolic, NotSymbolic, Timeseries, SymbolCache
@@ -1519,6 +1520,26 @@ end
 
 Base.map(f, A::AbstractRaggedVectorOfArray) = map(f, A.u)
 
+# Named functor used by the nested-ragged mapreduce to ensure type-stable dispatch.
+struct _RaggedMapReduce{F, Op}
+    f::F
+    op::Op
+end
+@inline (w::_RaggedMapReduce)(u) = mapreduce(w.f, w.op, u)
+
+# When inner elements are themselves ragged, the view-based approach fails: view uses
+# size(A.u[1]) for every column, causing BoundsErrors when inner shapes differ.
+# We recurse element-by-element instead. Dispatching on the type of A.u (rather than
+# using an if-check at runtime) keeps inference type-stable down to Julia 1.10.
+function Base.mapreduce(
+        f, op,
+        A::AbstractRaggedVectorOfArray{T, N, <:AbstractVector{<:AbstractRaggedVectorOfArray}};
+        kwargs...
+    ) where {T, N}
+    isempty(kwargs) || return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
+    return mapreduce(_RaggedMapReduce(f, op), op, A.u)
+end
+
 function Base.mapreduce(f, op, A::AbstractRaggedVectorOfArray; kwargs...)
     return mapreduce(f, op, view(A, ntuple(_ -> :, ndims(A))...); kwargs...)
 end
@@ -1724,5 +1745,40 @@ end
 
 # Re-export has_discretes and get_discretes for the non-ragged types
 has_discretes(::TT) where {TT <: AbstractDiffEqArray} = hasfield(TT, :discretes)
+
+function recursivecopy!(b::AbstractRaggedVectorOfArray, a::AbstractRaggedVectorOfArray)
+    @inbounds for i in eachindex(b.u, a.u)
+        if ArrayInterface.ismutable(b.u[i]) || b.u[i] isa AbstractRaggedVectorOfArray
+            recursivecopy!(b.u[i], a.u[i])
+        else
+            b.u[i] = copy(a.u[i])
+        end
+    end
+    return b
+end
+
+function recursivefill!(
+        b::AbstractRaggedVectorOfArray{T, N},
+        a::T2
+    ) where {T <: Union{Number, Bool}, T2 <: Union{Number, Bool}, N}
+    return fill!(b, a)
+end
+
+function recursivefill!(
+        b::AbstractRaggedVectorOfArray{T, N},
+        a::T2
+    ) where {T <: StaticArraysCore.SArray, T2 <: Union{Number, Bool}, N}
+    @inbounds for arr in b.u, i in eachindex(arr)
+        arr[i] = map(_ -> a, arr[i])
+    end
+    return b
+end
+
+function recursivefill!(b::AbstractRaggedVectorOfArray{T, N}, a) where {T <: AbstractArray, N}
+    @inbounds for arr in b.u
+        recursivefill!(arr, a)
+    end
+    return b
+end
 
 end # module RecursiveArrayToolsRaggedArrays
